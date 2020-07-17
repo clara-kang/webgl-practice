@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <script type="x-shader/x-vertex" id="vshader">
+    attribute vec3 vertexPos;
+
+    uniform mat4 uM;
+    uniform mat4 uV;
+    uniform mat4 uP;
+
+    void main() {
+      gl_Position = uP * uV * uM * vec4(vertexPos, 1.0);
+    }
+  </script>
+  <script type="x-shader/x-fragment" id="fshader">
+    void main() {
+      gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+    }
+  </script>
+  <script src="gl-matrix-min.js"></script>
+  <script src="main.js"></script>
+  <canvas id="glCanvas" width="640" height="480"></canvas>
+</body>
+</html>
