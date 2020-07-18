@@ -2,7 +2,8 @@ function parseObj(obj_str) {
   const model = {
     vs: [],
     vns: [],
-    fs: []
+    fs: [],
+    fns: []
   };
 
   let get_next_idx = function(start_idx) {
@@ -27,6 +28,7 @@ function parseObj(obj_str) {
         // face.push(parseInt(fsegs[0]));
         // face.push([parseInt(fsegs[0]), parseInt(fsegs[1]), parseInt(fsegs[2])]);
         model.fs.push(parseInt(fsegs[0])-1);
+        model.fns.push(parseInt(fsegs[2])-1);
       }
     }
   }
@@ -44,7 +46,8 @@ function parseObj(obj_str) {
     last_delim_idx = delim_idx+1;
   }
   // console.log(model.fs[3]);
-  console.log("model.vs len: " + model.fs);
+  // console.log("model.vs len: " + model.fs);
+  console.log(model);
   // console.log("model.vs elem len: " + model.vns[0].length);
   return model;
 }
@@ -58,7 +61,7 @@ function prepareIntrleavedVNs(model) {
         vn_arr.push(model.vs[idx][dim]);
       }
       for (let dim = 0; dim < 3; dim ++) {
-        vn_arr.push(model.vns[i][dim]);
+        vn_arr.push(model.vns[model.fns[i* 3 + j]][dim]);
       }
     }
   }
@@ -74,7 +77,11 @@ function main() {
   // const fsSource = getTextContent("fshader");
   const canvas = document.querySelector("#glCanvas");
   const gl = canvas.getContext("webgl");
-  const model = parseObj(ico_sphere_obj);
+
+  const ico_sphere_model = parseObj(ico_sphere_obj);
+  const plane_model = parseObj(plane_obj);
+
+  let models = [ico_sphere_model, plane_model];
 
   if (gl == null) {
     alert("unable to initializa webgl.")
@@ -97,8 +104,8 @@ function main() {
     }
   };
 
-  const buffers = initBuffers(gl, model);
-  drawScene(gl, programInfo, buffers, model);
+  const buffers = initBuffers(gl, models);
+  drawScene(gl, programInfo, buffers);
 }
 
 // initializa shaders
@@ -106,7 +113,7 @@ function main() {
 function initShaderProgram(gl, vsSource, fsSource) {
   const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource)
   const frgmntShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource)
-  console.log(frgmntShader);
+
   const shaderProgram = gl.createProgram();
 
   gl.attachShader(shaderProgram, vertexShader);
@@ -133,17 +140,27 @@ function loadShader(gl, type, source) {
   return shader;
 }
 
-function initBuffers(gl, model) {
+function initBuffers(gl, models) {
   const posNormBuffer = gl.createBuffer();
-  let vn_arr = prepareIntrleavedVNs(model);
 
-  console.log("vn_arr: ", vn_arr);
+  let vn_arr = [];
+  let total_face_num = 0;
+
+  for ( const model of models ) {
+    vn_arr = vn_arr.concat(prepareIntrleavedVNs(model));
+    total_face_num += model.fs.length;
+  }
+
+  console.log('total_face_num: ' + total_face_num);
+
+  // console.log("vn_arr: ", vn_arr);
   gl.bindBuffer(gl.ARRAY_BUFFER, posNormBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vn_arr), gl.STATIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
   return {
     position_normal: posNormBuffer,
+    total_face_num: total_face_num
   };
 }
 
@@ -191,7 +208,7 @@ function drawScene(gl, programInfo, buffer, model) {
   gl.uniformMatrix4fv(programInfo.uniformLocation.M, false, modlMatrix);
   gl.uniform3fv(programInfo.uniformLocation.lightPos, [-5, 5, 1]);
 
-  gl.drawArrays(gl.TRIANGLES, 0, model.fs.length);
+  gl.drawArrays(gl.TRIANGLES, 0, buffer.total_face_num * 3);
 }
 
 window.onload = main;
