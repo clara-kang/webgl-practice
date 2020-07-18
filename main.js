@@ -1,15 +1,3 @@
-function getTextContent( elementID ) {
-    var element = document.getElementById(elementID);
-    var node = element.firstChild;
-    var str = "";
-    while (node) {
-        if (node.nodeType == 3) // this is a text node
-            str += node.textContent;
-        node = node.nextSibling;
-    }
-    return str;
-}
-
 function parseObj(obj_str) {
   const model = {
     vs: [],
@@ -24,23 +12,22 @@ function parseObj(obj_str) {
   let parseLine = function(line) {
     if (line.startsWith("vn")) {
       let segs = line.split(" ");
-      // model.vns.push([parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3])]);
-      model.vns.push(parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3]));
+      model.vns.push([parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3])]);
+      // model.vns.push(parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3]));
     }
     else if (line.startsWith("v")) {
       let segs = line.split(" ");
-      // model.vs.push([parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3])]);
-      model.vs.push(parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3]));
+      model.vs.push([parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3])]);
+      // model.vs.push(parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3]));
     }
     else if (line.startsWith("f")) {
       let segs = line.split(" ");
-      // face = []
       for (let i = 1; i < 4; i++) {
-        fsegs = segs[i].split("/")
+        fsegs = segs[i].split("/");
+        // face.push(parseInt(fsegs[0]));
         // face.push([parseInt(fsegs[0]), parseInt(fsegs[1]), parseInt(fsegs[2])]);
         model.fs.push(parseInt(fsegs[0])-1);
       }
-      // model.fs.push(face);
     }
   }
 
@@ -57,9 +44,25 @@ function parseObj(obj_str) {
     last_delim_idx = delim_idx+1;
   }
   // console.log(model.fs[3]);
-  console.log("model.fs len: " + model.vs.length / 3);
+  console.log("model.vs len: " + model.fs);
   // console.log("model.vs elem len: " + model.vns[0].length);
   return model;
+}
+
+function prepareIntrleavedVNs(model) {
+  let vn_arr = [];
+  for (let i = 0; i < model.fs.length / 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      let idx = model.fs[i* 3 + j];
+      for (let dim = 0; dim < 3; dim ++) {
+        vn_arr.push(model.vs[idx][dim]);
+      }
+      for (let dim = 0; dim < 3; dim ++) {
+        vn_arr.push(model.vns[i][dim]);
+      }
+    }
+  }
+  return vn_arr;
 }
 
 function test() {
@@ -67,8 +70,8 @@ function test() {
 }
 
 function main() {
-  const vsSource = getTextContent("vshader");
-  const fsSource = getTextContent("fshader");
+  // const vsSource = getTextContent("vshader");
+  // const fsSource = getTextContent("fshader");
   const canvas = document.querySelector("#glCanvas");
   const gl = canvas.getContext("webgl");
   const model = parseObj(ico_sphere_obj);
@@ -83,14 +86,14 @@ function main() {
   const programInfo = {
     program: shaderProgram,
     attribLocations: {
-      vertexPosition: gl.getAttribLocation(shaderProgram, 'vertexPos')
-      // vertexNormal: gl.getAttribLocation(shaderProgram, 'vertexNorm')
+      vertexPosition: gl.getAttribLocation(shaderProgram, 'vertexPos'),
+      vertexNormal: gl.getAttribLocation(shaderProgram, 'vertexNorm')
     },
     uniformLocation: {
       M: gl.getUniformLocation(shaderProgram, 'uM'),
       V: gl.getUniformLocation(shaderProgram, 'uV'),
-      P: gl.getUniformLocation(shaderProgram, 'uP')
-      // lightPos: gl.getUniformLocation(shaderProgram, 'lightPos')
+      P: gl.getUniformLocation(shaderProgram, 'uP'),
+      lightPos: gl.getUniformLocation(shaderProgram, 'lightPos')
     }
   };
 
@@ -131,22 +134,16 @@ function loadShader(gl, type, source) {
 }
 
 function initBuffers(gl, model) {
-  const positionBuffer = gl.createBuffer();
-  const elementBuffer = gl.createBuffer();
-  // const normalBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(model.vs), gl.STATIC_DRAW);
+  const posNormBuffer = gl.createBuffer();
+  let vn_arr = prepareIntrleavedVNs(model);
+
+  console.log("vn_arr: ", vn_arr);
+  gl.bindBuffer(gl.ARRAY_BUFFER, posNormBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vn_arr), gl.STATIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementBuffer);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(model.fs), gl.STATIC_DRAW);
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
-  // gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
-  // gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(model.vns), gl.STATIC_DRAW);
   return {
-    position: positionBuffer,
-    element: elementBuffer
-    // normal: normalBuffer
+    position_normal: posNormBuffer,
   };
 }
 
@@ -171,7 +168,6 @@ function drawScene(gl, programInfo, buffer, model) {
 
   projMatrix = getProjMatrix(gl.canvas.clientWidth, gl.canvas.clientHeight);
 
-
   // projMatrix = mat4.ortho(projMatrix, -2, 2, -2, 2, 0.1, 100);
   // viewMatrix = getViewMatrix([5, 0, 0], [0, 0, 0]);
   viewMatrix = mat4.create();
@@ -180,21 +176,22 @@ function drawScene(gl, programInfo, buffer, model) {
   modlMatrix = mat4.create();
 
   {
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer.position);
-    gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer.position_normal);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 24, 0);
     gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
 
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer.element);
-    // gl.vertexAttribPointer(programInfo.attribLocations.vertexNormal, 3, gl.FLOAT, true, 0, 0);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexNormal, 3, gl.FLOAT, true, 24, 12);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexNormal);
+
     // gl.enableVertexAttribArray(programInfo.attribLocations.vertexNormal);
   }
   gl.useProgram(programInfo.program);
   gl.uniformMatrix4fv(programInfo.uniformLocation.P, false, projMatrix);
   gl.uniformMatrix4fv(programInfo.uniformLocation.V, false, viewMatrix);
   gl.uniformMatrix4fv(programInfo.uniformLocation.M, false, modlMatrix);
-  // gl.uniform3fv(programInfo.uniformLocation.lightPos, vec3(-5, 5, 1));
+  gl.uniform3fv(programInfo.uniformLocation.lightPos, [-5, 5, 1]);
 
-  gl.drawElements(gl.TRIANGLES, model.fs.length, gl.UNSIGNED_SHORT, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, model.fs.length);
 }
 
 window.onload = main;
