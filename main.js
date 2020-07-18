@@ -10,11 +10,68 @@ function getTextContent( elementID ) {
     return str;
 }
 
+function parseObj(obj_str) {
+  const model = {
+    vs: [],
+    vns: [],
+    fs: []
+  };
+
+  let get_next_idx = function(start_idx) {
+    return obj_str.indexOf("\n", start_idx);
+  }
+
+  let parseLine = function(line) {
+    if (line.startsWith("vn")) {
+      let segs = line.split(" ");
+      // model.vns.push([parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3])]);
+      model.vns.push(parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3]));
+    }
+    else if (line.startsWith("v")) {
+      let segs = line.split(" ");
+      // model.vs.push([parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3])]);
+      model.vs.push(parseFloat(segs[1]), parseFloat(segs[2]), parseFloat(segs[3]));
+    }
+    else if (line.startsWith("f")) {
+      let segs = line.split(" ");
+      // face = []
+      for (let i = 1; i < 4; i++) {
+        fsegs = segs[i].split("/")
+        // face.push([parseInt(fsegs[0]), parseInt(fsegs[1]), parseInt(fsegs[2])]);
+        model.fs.push(parseInt(fsegs[0])-1);
+      }
+      // model.fs.push(face);
+    }
+  }
+
+  let last_delim_idx = 0;
+  while (true) {
+    let delim_idx = get_next_idx( last_delim_idx );
+    if (delim_idx < 0) {
+      let line = obj_str.slice(last_delim_idx);
+      parseLine(line);
+      break;
+    }
+    let line = obj_str.slice(last_delim_idx, delim_idx+1);
+    parseLine(line);
+    last_delim_idx = delim_idx+1;
+  }
+  // console.log(model.fs[3]);
+  console.log("model.fs len: " + model.vs.length / 3);
+  // console.log("model.vs elem len: " + model.vns[0].length);
+  return model;
+}
+
+function test() {
+  parseObj(ico_sphere_obj);
+}
+
 function main() {
   const vsSource = getTextContent("vshader");
   const fsSource = getTextContent("fshader");
   const canvas = document.querySelector("#glCanvas");
   const gl = canvas.getContext("webgl");
+  const model = parseObj(ico_sphere_obj);
 
   if (gl == null) {
     alert("unable to initializa webgl.")
@@ -27,16 +84,18 @@ function main() {
     program: shaderProgram,
     attribLocations: {
       vertexPosition: gl.getAttribLocation(shaderProgram, 'vertexPos')
+      // vertexNormal: gl.getAttribLocation(shaderProgram, 'vertexNorm')
     },
     uniformLocation: {
       M: gl.getUniformLocation(shaderProgram, 'uM'),
       V: gl.getUniformLocation(shaderProgram, 'uV'),
       P: gl.getUniformLocation(shaderProgram, 'uP')
+      // lightPos: gl.getUniformLocation(shaderProgram, 'lightPos')
     }
   };
 
-  const vertsBuffer = initBuffers(gl);
-  drawScene(gl, programInfo, vertsBuffer);
+  const buffers = initBuffers(gl, model);
+  drawScene(gl, programInfo, buffers, model);
 }
 
 // initializa shaders
@@ -71,21 +130,24 @@ function loadShader(gl, type, source) {
   return shader;
 }
 
-function initBuffers(gl) {
+function initBuffers(gl, model) {
   const positionBuffer = gl.createBuffer();
+  const elementBuffer = gl.createBuffer();
+  // const normalBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-  // const positions = [
-  //   -1.0, 0.0, -5.0,
-  //   1.0, 0.0, -5.0,
-  //   0.0, 1.0, -5.0,
-  // ];
-  const positions = [
-   1.0,  1.0, -0,
-  -1.0,  1.0, -0,
-   1.0, -1.0, -0,
-  ];
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-  return {position: positionBuffer};
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(model.vs), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, elementBuffer);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(model.fs), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+  // gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+  // gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(model.vns), gl.STATIC_DRAW);
+  return {
+    position: positionBuffer,
+    element: elementBuffer
+    // normal: normalBuffer
+  };
 }
 
 function getViewMatrix(eye_pos, look_at_pt) {
@@ -100,7 +162,7 @@ function getProjMatrix(width, height) {
   return projMatrix;
 }
 
-function drawScene(gl, programInfo, buffer) {
+function drawScene(gl, programInfo, buffer, model) {
   gl.clearColor(0.0, 0.0, 0.0, 1.0);
   gl.clearDepth(1.0);
   gl.enable(gl.DEPTH_TEST);
@@ -113,7 +175,7 @@ function drawScene(gl, programInfo, buffer) {
   // projMatrix = mat4.ortho(projMatrix, -2, 2, -2, 2, 0.1, 100);
   // viewMatrix = getViewMatrix([5, 0, 0], [0, 0, 0]);
   viewMatrix = mat4.create();
-  mat4.translate(viewMatrix, viewMatrix, [0, 0, -5]);
+  mat4.translate(viewMatrix, viewMatrix, [0, 0, -7]);
   // console.log(viewMatrix);
   modlMatrix = mat4.create();
 
@@ -121,13 +183,19 @@ function drawScene(gl, programInfo, buffer) {
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer.position);
     gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
     gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffer.element);
+    // gl.vertexAttribPointer(programInfo.attribLocations.vertexNormal, 3, gl.FLOAT, true, 0, 0);
+    // gl.enableVertexAttribArray(programInfo.attribLocations.vertexNormal);
   }
   gl.useProgram(programInfo.program);
   gl.uniformMatrix4fv(programInfo.uniformLocation.P, false, projMatrix);
   gl.uniformMatrix4fv(programInfo.uniformLocation.V, false, viewMatrix);
   gl.uniformMatrix4fv(programInfo.uniformLocation.M, false, modlMatrix);
+  // gl.uniform3fv(programInfo.uniformLocation.lightPos, vec3(-5, 5, 1));
 
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.drawElements(gl.TRIANGLES, model.fs.length, gl.UNSIGNED_SHORT, 0);
 }
 
 window.onload = main;
+// window.onload = test;
