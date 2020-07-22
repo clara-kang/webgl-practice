@@ -21,7 +21,7 @@ void main() {
   // gl_Position = uP_light * uV_light * vec4(vertexPos, 1.0);
 
   normColor = vec3(lightAmt, lightAmt, lightAmt) + vec3(0.2, 0.2, 0.2);
-  position_2_light = uP_light * uV_light * vec4(vertexPos, 1.0) ;
+  position_2_light = uP_light * uV_light * uM * vec4(vertexPos, 1.0) ;
   tex_coord = vertexPos.xy * 0.5 + 0.5;
 }
 `
@@ -29,11 +29,12 @@ void main() {
 const light_vs = `
 attribute vec3 vertexPos;
 
+uniform mat4 uM;
 uniform mat4 uV;
 uniform mat4 uP;
 
 void main() {
-  gl_Position = uP * uV * vec4(vertexPos, 1.0);
+  gl_Position = uP * uV * uM * vec4(vertexPos, 1.0);
   // gl_Position.z = -float(1);
 }
 `

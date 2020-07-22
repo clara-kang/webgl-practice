@@ -1,4 +1,9 @@
 lightLocation = [-5, 5, 1];
+eyeLocation = [0, 1, 8];
+height = 0;
+initial_velocity = 2;
+velocity = initial_velocity;
+time_step = 0.03;
 
 function parseObj(obj_str) {
   const model = {
@@ -100,6 +105,7 @@ function main() {
       vertexPosition: gl.getAttribLocation(lightShaderProgram, 'vertexPos')
     },
     uniformLocation: {
+      M: gl.getUniformLocation(lightShaderProgram, 'uM'),
       V: gl.getUniformLocation(lightShaderProgram, 'uV'),
       P: gl.getUniformLocation(lightShaderProgram, 'uP')
     }
@@ -124,10 +130,27 @@ function main() {
   };
 
   const buffers = initBuffers(gl, models);
-  const matrices = createMatrices(gl);
+  const matrices = createPVMatrices(gl);
+  const mmatrices = [mat4.create(), mat4.create()];
   textureInfo = defineTexture(gl);
-  drawFromLight(gl, lightProgramInfo, buffers, textureInfo, matrices);
-  drawScene(gl, programInfo, buffers, textureInfo, matrices);
+  // drawFromLight(gl, lightProgramInfo, buffers, textureInfo, matrices, mmatrices);
+  // drawScene(gl, programInfo, buffers, textureInfo, matrices, mmatrices);
+
+  redraw = function () {
+    updateHeight();
+    //
+    updateMMatrices(height, mmatrices);
+
+    drawFromLight(gl, lightProgramInfo, buffers, textureInfo, matrices, mmatrices);
+    drawScene(gl, programInfo, buffers, textureInfo, matrices, mmatrices);
+  }
+
+  // redraw();
+  // redraw();
+
+  // setTimeout(redraw, 500);
+  // setTimeout(redraw, 1000);
+  setInterval(redraw, 50);
 }
 
 // initializa shaders
@@ -163,27 +186,21 @@ function loadShader(gl, type, source) {
 }
 
 function initBuffers(gl, models) {
-  const posNormBuffer = gl.createBuffer();
+  buffers = new Array(models.length);
 
-  let vn_arr = [];
-  let total_face_num = 0;
+  for (let m_idx = 0; m_idx < models.length; m_idx ++) {
+    pos_norm_buffer = gl.createBuffer();
+    let vn_arr = prepareIntrleavedVNs(models[m_idx]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, pos_norm_buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vn_arr), gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
-  for ( const model of models ) {
-    vn_arr = vn_arr.concat(prepareIntrleavedVNs(model));
-    total_face_num += model.fs.length;
+    buffers[m_idx] = {
+      position_normal: pos_norm_buffer,
+      num_of_indices: models[m_idx].fs.length
+    }
   }
-
-  console.log('total_face_num: ' + total_face_num);
-
-  // console.log("vn_arr: ", vn_arr);
-  gl.bindBuffer(gl.ARRAY_BUFFER, posNormBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vn_arr), gl.STATIC_DRAW);
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-  return {
-    position_normal: posNormBuffer,
-    total_face_num: total_face_num
-  };
+  return buffers;
 }
 
 function getViewMatrix(eye_pos, look_at_pt) {
@@ -240,47 +257,65 @@ function defineTexture(gl) {
   }
 }
 
-function createMatrices(gl) {
+function createPVMatrices(gl) {
   lightProjMatrix = mat4.create();
   lightProjMatrix = mat4.perspective(lightProjMatrix, 90 * Math.PI / 180, 1, 0.1, 100);
   lightViewMatrix = mat4.create();
   lightViewMatrix = mat4.lookAt(lightViewMatrix, lightLocation, [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
   projMatrix = getProjMatrix(gl.canvas.clientWidth, gl.canvas.clientHeight);
   viewMatrix = mat4.create();
-  mat4.translate(viewMatrix, viewMatrix, [0, 0, -7]);
-  modlMatrix = mat4.create();
+  viewMatrix = mat4.lookAt(viewMatrix, eyeLocation, [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
+  // mat4.translate(viewMatrix, viewMatrix, [0, 0, -7]);
 
   return {
     lightProjMatrix: lightProjMatrix,
     lightViewMatrix: lightViewMatrix,
     projMatrix: projMatrix,
-    viewMatrix: viewMatrix,
-    modlMatrix: modlMatrix
+    viewMatrix: viewMatrix
   }
 }
 
-function drawFromLight(gl, programInfo, buffer, textureInfo, matrices) {
-  gl.clearDepth(1.0);
+function updateHeight() {
+  velocity -= time_step;
+  height += velocity * time_step;
+  if (height <= 0 && velocity <= -initial_velocity) {
+    velocity = initial_velocity;
+    height = 0;
+  }
+}
+
+function updateMMatrices(height, mmatrices) {
+  mmatrices[0][13] = height;
+}
+
+function drawFromLight(gl, programInfo, buffers, textureInfo, matrices, mmatrices) {
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, textureInfo.frameBuffer);
+  gl.bindTexture(gl.TEXTURE_2D, textureInfo.targetTexture);
+  gl.viewport(0, 0, textureInfo.texWidth, textureInfo.texHeight);
+
+  gl.clearDepth(100);
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
   gl.clear(gl.DEPTH_BUFFER_BIT);
 
-  gl.bindFramebuffer(gl.FRAMEBUFFER, textureInfo.frameBuffer);
-  // gl.bindTexture(gl.TEXTURE_2D, textureInfo.targetTexture);
-  gl.viewport(0, 0, textureInfo.texWidth, textureInfo.texHeight);
-
   gl.useProgram(programInfo.program);
+
   gl.uniformMatrix4fv(programInfo.uniformLocation.V, false, matrices.lightViewMatrix);
   gl.uniformMatrix4fv(programInfo.uniformLocation.P, false, matrices.lightProjMatrix);
 
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer.position_normal);
-  gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 24, 0);
-  gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+  for (let m_idx = 0; m_idx < buffers.length; m_idx++) {
+    gl.uniformMatrix4fv(programInfo.uniformLocation.M, false, mmatrices[m_idx]);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers[m_idx].position_normal);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
 
-  gl.drawArrays(gl.TRIANGLES, 0, buffer.total_face_num * 3);
+    gl.drawArrays(gl.TRIANGLES, 0, buffers[m_idx].num_of_indices);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 }
 
-function drawScene(gl, programInfo, buffer, textureInfo, matrices) {
+function drawScene(gl, programInfo, buffers, textureInfo, matrices, mmatrices) {
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
@@ -291,24 +326,28 @@ function drawScene(gl, programInfo, buffer, textureInfo, matrices) {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   gl.useProgram(programInfo.program);
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer.position_normal);
-  gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 24, 0);
-  gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
-
-  gl.vertexAttribPointer(programInfo.attribLocations.vertexNormal, 3, gl.FLOAT, true, 24, 12);
-  gl.enableVertexAttribArray(programInfo.attribLocations.vertexNormal);
 
   gl.uniformMatrix4fv(programInfo.uniformLocation.P, false, matrices.projMatrix);
   gl.uniformMatrix4fv(programInfo.uniformLocation.V, false, matrices.viewMatrix);
-  gl.uniformMatrix4fv(programInfo.uniformLocation.M, false, matrices.modlMatrix);
   gl.uniformMatrix4fv(programInfo.uniformLocation.lightV, false, matrices.lightViewMatrix);
   gl.uniformMatrix4fv(programInfo.uniformLocation.lightP, false, matrices.lightProjMatrix);
-  gl.uniform3fv(programInfo.uniformLocation.lightPos, [-5, 5, 1]);
+  gl.uniform3fv(programInfo.uniformLocation.lightPos, lightLocation);
 
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, textureInfo.targetTexture);
 
-  gl.drawArrays(gl.TRIANGLES, 0, buffer.total_face_num * 3);
+  for (let m_idx = 0; m_idx < buffers.length; m_idx++) {
+    gl.uniformMatrix4fv(programInfo.uniformLocation.M, false, mmatrices[m_idx]);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffers[m_idx].position_normal);
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 24, 0);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+
+    gl.vertexAttribPointer(programInfo.attribLocations.vertexNormal, 3, gl.FLOAT, true, 24, 12);
+    gl.enableVertexAttribArray(programInfo.attribLocations.vertexNormal);
+
+    gl.drawArrays(gl.TRIANGLES, 0, buffers[m_idx].num_of_indices);
+  }
 }
 
 window.onload = main;
